@@ -1,0 +1,1758 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Connect Four Plus</title>
+    <!-- Include Tailwind CSS via CDN -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    <!-- Firebase SDK -->
+    <script src="https://www.gstatic.com/firebasejs/9.6.1/firebase-app-compat.js"></script>
+    <script src="https://www.gstatic.com/firebasejs/9.6.1/firebase-database-compat.js"></script>
+    <style>
+        /* Adjust layout to fit snugly in the browser */
+        body {
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            background-color: #f7f7f7; /* Very light gray background */
+            color: #4a5568; /* Muted text color */
+            margin: 0;
+            padding: 0;
+            min-height: 100vh;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            box-sizing: border-box;
+            padding: 1rem; /* Add padding to avoid content touching edges */
+            overflow-x: hidden; /* Prevent horizontal overflow */
+        }
+
+        .game-container {
+            width: 100%; /* Full width of parent with padding */
+            max-width: 500px; /* Slightly reduced max width */
+            margin: 0 auto;
+            padding: 1.25rem;
+            background-color: #fff;
+            border-radius: 0.75rem;
+            box-shadow: 0 2px 8px rgba(0, 0, 0, 0.05); /* Lighter shadow */
+        }
+
+        .grid {
+            display: grid;
+            grid-template-columns: repeat(5, 1fr);
+            grid-template-rows: repeat(5, 1fr);
+            gap: 0.35rem; /* Slightly reduced gap */
+            aspect-ratio: 1 / 1;
+            margin-bottom: 1.25rem;
+            border: 1px solid #edf2f7; /* Very light border */
+            padding: 0.35rem; /* Slightly reduced padding */
+            border-radius: 0.5rem;
+        }
+
+        .cell {
+            background-color: #f8fafc; /* Very light gray background for cells */
+            border-radius: 0.4rem;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            font-size: 1.5rem; /* Slightly smaller font */
+            font-weight: bold;
+            cursor: pointer;
+            transition: background-color 0.2s ease, transform 0.1s ease;
+            position: relative;
+            border: 1px solid #edf2f7; /* Very subtle border for cells */
+            min-height: 2.5rem; /* Minimum height to ensure consistency */
+        }
+
+        .cell:hover:not(.X):not(.O) {
+            background-color: #e2e8f0; /* Light gray on hover */
+            transform: scale(1.03); /* Slightly reduced scale on hover */
+        }
+        
+        .cell.X {
+            color: #718096; /* Muted dark color for X */
+            cursor: default;
+        }
+        
+        .cell.O {
+            color: #a0aec0; /* Muted medium gray for O (AI) */
+            cursor: default;
+        }
+        
+        .cell.highlight::after {
+            content: '';
+            position: absolute;
+            top: -3px; /* Adjusted for new spacing */
+            left: -3px;
+            right: -3px;
+            bottom: -3px;
+            border: 2px solid #cbd5e0; /* Light gray highlight instead of gold */
+            border-radius: 0.5rem;
+            animation: pulse 0.8s infinite alternate;
+            pointer-events: none;
+        }
+        
+        @keyframes pulse {
+            from { opacity: 0.5; }
+            to { opacity: 0.9; }
+        }
+        
+        /* Responsive font size for cells */
+        @media (max-width: 600px) {
+            .cell { font-size: 1.25rem; min-height: 2rem; }
+            .game-container { padding: 1rem; }
+            .grid { gap: 0.3rem; padding: 0.3rem; }
+        }
+        
+        @media (max-width: 400px) {
+            .cell { font-size: 1rem; min-height: 1.75rem; }
+            .game-container { padding: 0.75rem; }
+            .grid { gap: 0.25rem; padding: 0.25rem; }
+        }
+        
+        /* Styles for removal phase */
+        .removal-phase .cell.X:hover {
+            background-color: #e2e8f0; /* Light gray on hover for removing X */
+            cursor: crosshair;
+            border-color: #cbd5e0;
+        }
+        
+        .removal-phase .cell.O:hover {
+            cursor: not-allowed;
+        }
+        
+        .removal-phase .cell:not(.X):not(.O):hover,
+        .removal-phase .cell.O, /* Can't remove O */
+        .removal-phase .cell.X:not(:hover) {
+            cursor: not-allowed;
+        }
+        
+        /* Button styling */
+        button {
+            transition: background-color 0.2s ease, transform 0.1s ease;
+            background-color: #a0aec0; /* Muted medium gray button */
+            color: white;
+            font-weight: 500;
+            padding: 0.6rem 1.2rem;
+            border-radius: 0.4rem;
+            border: none;
+            box-shadow: 0 1px 2px rgba(0,0,0,0.05);
+        }
+        
+        button:hover {
+            background-color: #718096; /* Slightly darker gray on hover */
+        }
+        
+        button:active {
+            transform: scale(0.98);
+            background-color: #4a5568; /* Even darker gray when active */
+        }
+        
+        /* Text styling */
+        h1 {
+            color: #4a5568; /* Muted dark color */
+            margin-bottom: 1.25rem;
+            font-size: 1.75rem; /* Smaller heading */
+        }
+        
+        #score-x, #score-o, #turn-indicator, #message-area {
+            color: #718096; /* Medium-dark gray for info text */
+        }
+        
+        #score-x { color: #718096; } /* Muted dark for X score */
+        #score-o { color: #a0aec0; } /* Muted medium gray for O score */
+
+        /* Score and Status Panel Styling */
+        .game-header {
+            display: grid;
+            grid-template-columns: 1fr auto 1fr;
+            gap: 1rem; /* Reduced gap */
+            align-items: center;
+            margin-bottom: 1.5rem;
+            padding: 0.75rem;
+            background: white;
+            border-radius: 0.6rem;
+            box-shadow: 0 1px 3px rgba(0, 0, 0, 0.03); /* Very subtle shadow */
+        }
+
+        .score-box {
+            padding: 0.5rem 0.75rem;
+            border-radius: 0.4rem;
+            text-align: center;
+            background: #f8fafc; /* Very light gray */
+            transition: background-color 0.3s ease;
+        }
+
+        .score-box.active {
+            background: #edf2f7;
+        }
+
+        .score-label {
+            font-size: 0.8rem;
+            text-transform: uppercase;
+            letter-spacing: 0.03em;
+            color: #a0aec0; /* Muted medium gray */
+            margin-bottom: 0.25rem;
+        }
+
+        .score-value {
+            font-size: 1.25rem;
+            font-weight: 600;
+            color: #4a5568;
+        }
+
+        #turn-indicator {
+            font-size: 0.9rem;
+            font-weight: 500;
+            padding: 0.4rem 0.75rem;
+            border-radius: 0.4rem;
+            background: #f8fafc;
+            color: #718096;
+            text-align: center;
+            min-width: 125px; /* Slightly reduced width */
+        }
+
+        /* Popup Message Animation */
+        .popup-message {
+            position: fixed;
+            top: 50%;
+            left: 50%;
+            transform: translate(-50%, -50%);
+            background: rgba(255, 255, 255, 0.98);
+            padding: 1.25rem 1.75rem;
+            border-radius: 0.75rem;
+            box-shadow: 0 2px 10px rgba(0, 0, 0, 0.1); /* Lighter shadow */
+            z-index: 1000;
+            text-align: center;
+            min-width: 200px;
+            max-width: 90vw;
+            display: flex;
+            flex-direction: column;
+            gap: 0.75rem;
+            align-items: center;
+        }
+
+        .popup-message-text {
+            font-size: 1.1rem;
+            font-weight: 500;
+            color: #4a5568;
+            margin: 0;
+        }
+
+        .popup-button {
+            background-color: #a0aec0;
+            color: white;
+            border: none;
+            padding: 0.4rem 1.5rem;
+            border-radius: 0.4rem;
+            font-size: 0.9rem;
+            font-weight: 500;
+            cursor: pointer;
+            transition: background-color 0.2s ease, transform 0.1s ease;
+        }
+
+        .popup-button:hover {
+            background-color: #718096;
+        }
+
+        .popup-button:active {
+            transform: scale(0.98);
+        }
+
+        /* Overlay background */
+        .popup-overlay {
+            position: fixed;
+            top: 0;
+            left: 0;
+            right: 0;
+            bottom: 0;
+            background: rgba(0, 0, 0, 0.3); /* Lighter overlay */
+            z-index: 999;
+        }
+        
+        /* Message area */
+        #message-area {
+            min-height: 1.5rem;
+            margin-bottom: 1rem; /* Reduced spacing */
+            font-size: 0.9rem; /* Smaller font */
+        }
+
+        /* Additional icons and button styling */
+        .header-container {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 1.25rem;
+        }
+        
+        .game-title {
+            text-align: left;
+            margin: 0;
+            font-size: 1.5rem;
+            font-weight: 600;
+            color: #4a5568;
+        }
+        
+        .header-buttons {
+            display: flex;
+            gap: 0.5rem;
+        }
+        
+        .icon-button {
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            background-color: #f8fafc;
+            color: #718096;
+            border: none;
+            width: 2rem;
+            height: 2rem;
+            border-radius: 0.4rem;
+            font-size: 1rem;
+            cursor: pointer;
+            transition: background-color 0.2s ease, color 0.2s ease;
+            box-shadow: 0 1px 2px rgba(0,0,0,0.05);
+        }
+        
+        .icon-button:hover {
+            background-color: #e2e8f0;
+            color: #4a5568;
+        }
+        
+        .instructions-content {
+            font-size: 0.9rem;
+            line-height: 1.5;
+            text-align: left;
+        }
+        
+        .instructions-content h3 {
+            font-size: 1rem;
+            margin: 0.75rem 0 0.5rem;
+            color: #4a5568;
+        }
+        
+        .instructions-content ul {
+            padding-left: 1.25rem;
+            margin: 0.5rem 0;
+        }
+        
+        .instructions-content li {
+            margin-bottom: 0.25rem;
+        }
+    </style>
+</head>
+<body class="bg-gray-50 flex items-center justify-center min-h-screen">
+
+    <!-- Landing Page -->
+    <div id="landing-page" class="game-container text-center">
+        <h1 class="game-title mb-8">Connect Four Plus</h1>
+        <p class="mb-6">Choose your game mode:</p>
+        <div class="flex flex-col gap-4 w-full">
+            <button id="play-with-bot" class="bg-indigo-500 hover:bg-indigo-600 text-white font-medium py-3 px-4 rounded-lg transition-colors">
+                Play with Bot
+            </button>
+            <button id="play-with-human" class="bg-green-500 hover:bg-green-600 text-white font-medium py-3 px-4 rounded-lg transition-colors">
+                Play with Another Person
+            </button>
+        </div>
+    </div>
+
+    <!-- Multiplayer Setup Page -->
+    <div id="multiplayer-setup" class="game-container text-center hidden">
+        <h1 class="game-title mb-6">Multiplayer Setup</h1>
+        
+        <div class="mb-4">
+            <label for="player-name" class="block text-sm font-medium text-gray-700 mb-2">Your Name</label>
+            <input type="text" id="player-name" class="w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-indigo-500 focus:border-indigo-500" placeholder="Enter your name">
+        </div>
+        
+        <div class="grid grid-cols-1 gap-4 mt-6">
+            <button id="create-game" class="bg-blue-500 hover:bg-blue-600 text-white font-medium py-3 px-4 rounded-lg transition-colors">
+                Create New Game
+            </button>
+            <p class="text-center my-2">- OR -</p>
+            <div>
+                <label for="game-code" class="block text-sm font-medium text-gray-700 mb-2">Join with Code</label>
+                <div class="flex gap-2">
+                    <input type="text" id="game-code" class="w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-indigo-500 focus:border-indigo-500" placeholder="Enter game code">
+                    <button id="join-game" class="bg-green-500 hover:bg-green-600 text-white font-medium py-2 px-4 rounded-lg transition-colors">
+                        Join
+                    </button>
+                </div>
+            </div>
+        </div>
+        
+        <button id="back-to-landing" class="mt-8 text-gray-600 hover:text-gray-800 font-medium">
+            ← Back
+        </button>
+    </div>
+
+    <!-- Waiting Lobby -->
+    <div id="waiting-lobby" class="game-container text-center hidden">
+        <h1 class="game-title mb-6">Waiting for Opponent</h1>
+        <div class="mb-6">
+            <p class="text-lg mb-4">Share this code with your friend:</p>
+            <div class="bg-gray-100 p-4 rounded-lg flex items-center justify-between mb-2">
+                <span id="lobby-code" class="text-xl font-bold tracking-wider"></span>
+                <button id="copy-code" class="text-indigo-600 hover:text-indigo-800">
+                    Copy
+                </button>
+            </div>
+            <p class="text-sm text-gray-600">The game will start automatically when they join</p>
+        </div>
+        <div class="mt-4 flex items-center justify-center">
+            <div class="animate-spin rounded-full h-8 w-8 border-t-2 border-b-2 border-indigo-500"></div>
+            <span class="ml-2">Waiting for opponent to join...</span>
+        </div>
+        <button id="cancel-waiting" class="mt-8 text-gray-600 hover:text-gray-800 font-medium">
+            ← Cancel
+        </button>
+    </div>
+
+    <!-- Game Board Container (Now Hidden Initially) -->
+    <div id="game-ui" class="game-container hidden">
+        <!-- Header with Title and Buttons -->
+        <div class="header-container">
+            <h1 class="game-title">Connect Four Plus</h1>
+            <div class="header-buttons">
+                <button id="help-button" class="icon-button" title="Game Instructions">?</button>
+                <button id="reset-button" class="icon-button" title="Reset Game">↺</button>
+            </div>
+        </div>
+
+        <!-- Score and Turn Display -->
+        <div class="game-header">
+            <div class="score-box" id="player-x-box">
+                <div class="score-label" id="player-x-label">Player</div>
+                <div class="score-value" id="score-x">0</div>
+            </div>
+            <div id="turn-indicator"></div>
+            <div class="score-box" id="player-o-box">
+                <div class="score-label" id="player-o-label">Bot</div>
+                <div class="score-value" id="score-o">0</div>
+            </div>
+        </div>
+
+        <!-- Game Board -->
+        <div id="game-board" class="grid">
+            <!-- Cells will be generated by JavaScript -->
+        </div>
+
+        <!-- Status Message Area -->
+        <div id="message-area" class="text-center text-lg min-h-[1.5em] mb-6"></div>
+    </div>
+
+    <script>
+        // Firebase Configuration
+        const firebaseConfig = {
+            apiKey: "AIzaSyC8ByLCkwNhBo1ka8w6cG7DO1JQzexURG4",
+            authDomain: "connect-four-plus.firebaseapp.com",
+            databaseURL: "https://connect-four-plus-default-rtdb.firebaseio.com",
+            projectId: "connect-four-plus",
+            storageBucket: "connect-four-plus.appspot.com",
+            messagingSenderId: "123456789012",
+            appId: "1:123456789012:web:1234567890abcdef"
+        };
+        
+        // Initialize Firebase
+        firebase.initializeApp(firebaseConfig);
+        const database = firebase.database();
+        
+        // --- Constants ---
+        const GRID_SIZE = 5;
+        const WINNING_SCORE = 5;
+        const CONNECT_5_POINTS = 2;
+        const CONNECT_4_POINTS = 1;
+        const REMOVAL_TURNS_EACH = 3;
+        const HIGHLIGHT_DURATION = 800; // ms (slightly faster)
+        const AI_DELAY = 500; // ms delay for AI move
+
+        // --- DOM Elements ---
+        // Landing page and multiplayer UI elements
+        const landingPage = document.getElementById('landing-page');
+        const multiplayerSetup = document.getElementById('multiplayer-setup');
+        const waitingLobby = document.getElementById('waiting-lobby');
+        const gameUI = document.getElementById('game-ui');
+        const playWithBotButton = document.getElementById('play-with-bot');
+        const playWithHumanButton = document.getElementById('play-with-human');
+        const createGameButton = document.getElementById('create-game');
+        const joinGameButton = document.getElementById('join-game');
+        const backToLandingButton = document.getElementById('back-to-landing');
+        const playerNameInput = document.getElementById('player-name');
+        const gameCodeInput = document.getElementById('game-code');
+        const lobbyCodeElement = document.getElementById('lobby-code');
+        const copyCodeButton = document.getElementById('copy-code');
+        const cancelWaitingButton = document.getElementById('cancel-waiting');
+        
+        // Game UI elements
+        const gameBoardElement = document.getElementById('game-board');
+        const scoreXElement = document.getElementById('score-x');
+        const scoreOElement = document.getElementById('score-o');
+        const turnIndicatorElement = document.getElementById('turn-indicator');
+        const messageAreaElement = document.getElementById('message-area');
+        const resetButton = document.getElementById('reset-button');
+        const helpButton = document.getElementById('help-button');
+        const gameContainerElement = document.querySelector('.game-container');
+        const playerXLabel = document.getElementById('player-x-label');
+        const playerOLabel = document.getElementById('player-o-label');
+
+        // --- App State Variables ---
+        let gameMode = null; // 'singleplayer' or 'multiplayer'
+        let gameId = null; // For multiplayer games
+        let playerName = ''; // User's name in multiplayer
+        let isPlayerX = true; // Whether the player is X (first player) in multiplayer
+        let multiplayerTurn = false; // Whether it's this player's turn in multiplayer
+        let opponentName = ''; // Name of opponent in multiplayer
+
+        // --- Game State Variables ---
+        let board = [];
+        let currentPlayer = 'X'; // X is Human, O is Bot or second player
+        let scores = { X: 0, O: 0 };
+        let gameOver = false;
+        let isRemovalPhase = false;
+        let removalTurnsLeft = 0;
+        let playerBeforeBoardFull = null;
+        let isPlayerTurn = true; // Flag to prevent clicks during AI turn/delay
+        let processingMove = false; // Flag to prevent overlapping move processing
+
+        // --- Event Listeners for Landing Page and Multiplayer Setup ---
+        playWithBotButton.addEventListener('click', () => {
+            gameMode = 'singleplayer';
+            landingPage.classList.add('hidden');
+            gameUI.classList.remove('hidden');
+            initGame();
+        });
+
+        playWithHumanButton.addEventListener('click', () => {
+            landingPage.classList.add('hidden');
+            multiplayerSetup.classList.remove('hidden');
+        });
+
+        backToLandingButton.addEventListener('click', () => {
+            multiplayerSetup.classList.add('hidden');
+            landingPage.classList.remove('hidden');
+        });
+
+        createGameButton.addEventListener('click', () => {
+            if (!playerNameInput.value.trim()) {
+                alert('Please enter your name');
+                return;
+            }
+            
+            playerName = playerNameInput.value.trim();
+            createMultiplayerGame();
+        });
+
+        joinGameButton.addEventListener('click', () => {
+            if (!playerNameInput.value.trim()) {
+                alert('Please enter your name');
+                return;
+            }
+            
+            if (!gameCodeInput.value.trim()) {
+                alert('Please enter a game code');
+                return;
+            }
+            
+            playerName = playerNameInput.value.trim();
+            joinMultiplayerGame(gameCodeInput.value.trim());
+        });
+
+        cancelWaitingButton.addEventListener('click', () => {
+            if (gameId) {
+                // Remove the game from Firebase
+                database.ref(`games/${gameId}`).remove();
+                gameId = null;
+            }
+            
+            waitingLobby.classList.add('hidden');
+            multiplayerSetup.classList.remove('hidden');
+        });
+
+        copyCodeButton.addEventListener('click', () => {
+            navigator.clipboard.writeText(lobbyCodeElement.textContent)
+                .then(() => {
+                    copyCodeButton.textContent = 'Copied!';
+                    setTimeout(() => {
+                        copyCodeButton.textContent = 'Copy';
+                    }, 2000);
+                })
+                .catch(err => {
+                    console.error('Failed to copy: ', err);
+                });
+        });
+
+        // --- Multiplayer Functions ---
+        function createMultiplayerGame() {
+            // Generate a random 6-character game code
+            gameId = Math.random().toString(36).substring(2, 8).toUpperCase();
+            
+            // Create the game in Firebase
+            database.ref(`games/${gameId}`).set({
+                players: {
+                    X: {
+                        name: playerName,
+                        ready: true
+                    }
+                },
+                board: Array(GRID_SIZE).fill(null).map(() => Array(GRID_SIZE).fill(null)),
+                currentPlayer: 'X',
+                scores: { X: 0, O: 0 },
+                isRemovalPhase: false,
+                removalTurnsLeft: 0,
+                playerBeforeBoardFull: null,
+                gameOver: false,
+                lastUpdate: firebase.database.ServerValue.TIMESTAMP
+            });
+            
+            // Set up listener for when opponent joins
+            database.ref(`games/${gameId}/players/O`).on('value', (snapshot) => {
+                if (snapshot.exists()) {
+                    opponentName = snapshot.val().name;
+                    
+                    // Both players are ready, start the game
+                    isPlayerX = true;
+                    multiplayerTurn = true; // X goes first
+                    waitingLobby.classList.add('hidden');
+                    gameUI.classList.remove('hidden');
+                    
+                    // Update player labels
+                    playerXLabel.textContent = playerName;
+                    playerOLabel.textContent = opponentName;
+                    
+                    // Start listening for game state changes
+                    setupMultiplayerGameListeners();
+                    initMultiplayerGame();
+                }
+            });
+            
+            // Show the waiting lobby with the game code
+            multiplayerSetup.classList.add('hidden');
+            waitingLobby.classList.remove('hidden');
+            lobbyCodeElement.textContent = gameId;
+        }
+
+        function joinMultiplayerGame(code) {
+            gameId = code.toUpperCase();
+            
+            // Check if the game exists
+            database.ref(`games/${gameId}`).once('value', (snapshot) => {
+                if (!snapshot.exists()) {
+                    alert('Game not found. Please check the code and try again.');
+                    return;
+                }
+                
+                const gameData = snapshot.val();
+                
+                // Check if the game already has two players
+                if (gameData.players && gameData.players.O && gameData.players.O.ready) {
+                    alert('This game is already full.');
+                    return;
+                }
+                
+                // Join the game as player O
+                database.ref(`games/${gameId}/players/O`).set({
+                    name: playerName,
+                    ready: true
+                });
+                
+                // Set up game state
+                isPlayerX = false;
+                multiplayerTurn = false; // X goes first
+                opponentName = gameData.players.X.name;
+                
+                // Update player labels
+                playerXLabel.textContent = opponentName;
+                playerOLabel.textContent = playerName;
+                
+                // Show the game UI
+                multiplayerSetup.classList.add('hidden');
+                gameUI.classList.remove('hidden');
+                
+                // Start listening for game state changes
+                setupMultiplayerGameListeners();
+                initMultiplayerGame();
+            });
+        }
+
+        function setupMultiplayerGameListeners() {
+            // Listen for board changes
+            database.ref(`games/${gameId}/board`).on('value', (snapshot) => {
+                if (snapshot.exists()) {
+                    const newBoard = snapshot.val();
+                    updateBoardUI(newBoard);
+                    board = newBoard; // Update local board
+                }
+            });
+            
+            // Listen for current player changes
+            database.ref(`games/${gameId}/currentPlayer`).on('value', (snapshot) => {
+                if (snapshot.exists()) {
+                    currentPlayer = snapshot.val();
+                    multiplayerTurn = (isPlayerX && currentPlayer === 'X') || (!isPlayerX && currentPlayer === 'O');
+                    updateTurnIndicator();
+                }
+            });
+            
+            // Listen for score changes
+            database.ref(`games/${gameId}/scores`).on('value', (snapshot) => {
+                if (snapshot.exists()) {
+                    scores = snapshot.val();
+                    updateScoreDisplay();
+                }
+            });
+            
+            // Listen for removal phase changes
+            database.ref(`games/${gameId}/isRemovalPhase`).on('value', (snapshot) => {
+                if (snapshot.exists()) {
+                    isRemovalPhase = snapshot.val();
+                    gameContainerElement.classList.toggle('removal-phase', isRemovalPhase);
+                }
+            });
+            
+            // Listen for removal turns left
+            database.ref(`games/${gameId}/removalTurnsLeft`).on('value', (snapshot) => {
+                if (snapshot.exists()) {
+                    removalTurnsLeft = snapshot.val();
+                    if (isRemovalPhase) {
+                        updateMessage(`Remove opponent piece. (${removalTurnsLeft} left)`);
+                    }
+                }
+            });
+            
+            // Listen for game over state
+            database.ref(`games/${gameId}/gameOver`).on('value', (snapshot) => {
+                if (snapshot.exists()) {
+                    gameOver = snapshot.val();
+                    if (gameOver) {
+                        const winner = scores.X > scores.O ? 'X' : 'O';
+                        const winnerName = winner === 'X' ? playerXLabel.textContent : playerOLabel.textContent;
+                        updateTurnIndicator("Game Over");
+                        updateMessage(`${winnerName} wins! (${scores.X}-${scores.O})`);
+                    }
+                }
+            });
+        }
+
+        function initMultiplayerGame() {
+            gameMode = 'multiplayer';
+            // Reset local game state
+            board = Array(GRID_SIZE).fill(null).map(() => Array(GRID_SIZE).fill(null));
+            currentPlayer = 'X';
+            scores = { X: 0, O: 0 };
+            gameOver = false;
+            isRemovalPhase = false;
+            removalTurnsLeft = 0;
+            playerBeforeBoardFull = null;
+            
+            // Clear the board UI
+            gameBoardElement.innerHTML = '';
+            
+            // Create the board cells
+            for (let r = 0; r < GRID_SIZE; r++) {
+                for (let c = 0; c < GRID_SIZE; c++) {
+                    const cell = document.createElement('div');
+                    cell.classList.add('cell');
+                    cell.dataset.row = r;
+                    cell.dataset.col = c;
+                    gameBoardElement.appendChild(cell);
+                }
+            }
+            
+            // Add event listener for cell clicks
+            gameBoardElement.addEventListener('click', handleMultiplayerCellClick);
+            
+            // Set up reset button
+            resetButton.addEventListener('click', resetMultiplayerGame);
+            
+            // Set up help button
+            helpButton.addEventListener('click', showInstructions);
+            
+            // Update the UI
+            updateScoreDisplay();
+            updateTurnIndicator();
+            updateMessage("");
+        }
+
+        function updateBoardUI(newBoard) {
+            // Update the UI to match the board state
+            for (let r = 0; r < GRID_SIZE; r++) {
+                for (let c = 0; c < GRID_SIZE; c++) {
+                    const cell = gameBoardElement.querySelector(`[data-row="${r}"][data-col="${c}"]`);
+                    const value = newBoard[r][c];
+                    
+                    // Clear existing classes and content
+                    cell.textContent = '';
+                    cell.classList.remove('X', 'O');
+                    
+                    // Add new content if needed
+                    if (value) {
+                        cell.textContent = value;
+                        cell.classList.add(value);
+                    }
+                }
+            }
+        }
+
+        function handleMultiplayerCellClick(event) {
+            // Only allow clicks during player's turn, not game over, and directly on a cell
+            if (!multiplayerTurn || gameOver || !event.target.classList.contains('cell')) return;
+
+            const cell = event.target;
+            const row = parseInt(cell.dataset.row);
+            const col = parseInt(cell.dataset.col);
+
+            if (isRemovalPhase) {
+                // Handle removal phase
+                const opponent = isPlayerX ? 'O' : 'X';
+                
+                if (board[row][col] === opponent) {
+                    // Remove the opponent's piece
+                    board[row][col] = null;
+                    removalTurnsLeft--;
+                    
+                    // Update Firebase
+                    const updates = {};
+                    updates[`games/${gameId}/board/${row}/${col}`] = null;
+                    updates[`games/${gameId}/removalTurnsLeft`] = removalTurnsLeft;
+                    
+                    if (removalTurnsLeft === 0) {
+                        // End removal phase
+                        const nextPlayer = playerBeforeBoardFull === 'X' ? 'O' : 'X';
+                        updates[`games/${gameId}/isRemovalPhase`] = false;
+                        updates[`games/${gameId}/currentPlayer`] = nextPlayer;
+                        updates[`games/${gameId}/playerBeforeBoardFull`] = null;
+                    } else {
+                        // Switch to other player's turn
+                        const nextPlayer = currentPlayer === 'X' ? 'O' : 'X';
+                        updates[`games/${gameId}/currentPlayer`] = nextPlayer;
+                    }
+                    
+                    database.ref().update(updates);
+                } else {
+                    updateMessage("Click on an opponent's piece to remove");
+                    setTimeout(() => {
+                        if (isRemovalPhase && multiplayerTurn) {
+                            updateMessage(`Remove opponent piece. (${removalTurnsLeft} left)`);
+                        }
+                    }, 1500);
+                }
+            } else {
+                // Normal gameplay
+                if (board[row][col] !== null) {
+                    updateMessage("Cell already taken");
+                    setTimeout(() => updateMessage(""), 1500);
+                    return;
+                }
+
+                // Place the symbol
+                const symbol = isPlayerX ? 'X' : 'O';
+                board[row][col] = symbol;
+                
+                // Check for win conditions
+                const win5 = checkWin(row, col, 5);
+                const win4 = checkWin(row, col, 4);
+                
+                if (win5 || win4) {
+                    // Handle scoring
+                    const pointsEarned = win5 ? CONNECT_5_POINTS : CONNECT_4_POINTS;
+                    scores[symbol] += pointsEarned;
+                    
+                    // Check for game over
+                    if (scores[symbol] >= WINNING_SCORE) {
+                        gameOver = true;
+                    }
+                    
+                    // Highlight winning cells
+                    const winningCells = win5 ? win5.cells : win4.cells;
+                    highlightMultiplayerWin(winningCells);
+                    
+                    // Update Firebase
+                    const updates = {};
+                    updates[`games/${gameId}/board/${row}/${col}`] = symbol;
+                    updates[`games/${gameId}/scores/${symbol}`] = scores[symbol];
+                    
+                    if (gameOver) {
+                        updates[`games/${gameId}/gameOver`] = true;
+                    } else {
+                        // Player gets another turn after scoring
+                        // The board will be updated after highlighting animation
+                    }
+                    
+                    database.ref().update(updates);
+                } else {
+                    // No scoring, just normal move
+                    // Check if board is full
+                    if (isBoardFull()) {
+                        // Start removal phase
+                        const updates = {};
+                        updates[`games/${gameId}/board/${row}/${col}`] = symbol;
+                        updates[`games/${gameId}/isRemovalPhase`] = true;
+                        updates[`games/${gameId}/removalTurnsLeft`] = REMOVAL_TURNS_EACH * 2;
+                        updates[`games/${gameId}/playerBeforeBoardFull`] = symbol;
+                        updates[`games/${gameId}/currentPlayer`] = 'X'; // X always starts removal
+                        
+                        database.ref().update(updates);
+                    } else {
+                        // Switch to other player's turn
+                        const nextPlayer = symbol === 'X' ? 'O' : 'X';
+                        
+                        const updates = {};
+                        updates[`games/${gameId}/board/${row}/${col}`] = symbol;
+                        updates[`games/${gameId}/currentPlayer`] = nextPlayer;
+                        
+                        database.ref().update(updates);
+                    }
+                }
+            }
+        }
+
+        function highlightMultiplayerWin(cells) {
+            // Highlight cells in UI
+            cells.forEach(({ r, c }) => {
+                const cellElement = gameBoardElement.querySelector(`[data-row="${r}"][data-col="${c}"]`);
+                if (cellElement) {
+                    cellElement.classList.add('highlight');
+                }
+            });
+
+            // After delay, clear cells and update Firebase
+            setTimeout(() => {
+                const updates = {};
+                
+                cells.forEach(({ r, c }) => {
+                    const cellElement = gameBoardElement.querySelector(`[data-row="${r}"][data-col="${c}"]`);
+                    if (cellElement) {
+                        cellElement.classList.remove('highlight');
+                        cellElement.textContent = '';
+                        cellElement.classList.remove('X', 'O');
+                    }
+                    
+                    // Update board in Firebase
+                    updates[`games/${gameId}/board/${r}/${c}`] = null;
+                });
+                
+                database.ref().update(updates);
+            }, HIGHLIGHT_DURATION);
+        }
+
+        function resetMultiplayerGame() {
+            // Ask for confirmation
+            if (confirm("Are you sure you want to reset the game?")) {
+                // Reset game state in Firebase
+                database.ref(`games/${gameId}`).update({
+                    board: Array(GRID_SIZE).fill(null).map(() => Array(GRID_SIZE).fill(null)),
+                    currentPlayer: 'X',
+                    scores: { X: 0, O: 0 },
+                    isRemovalPhase: false,
+                    removalTurnsLeft: 0,
+                    playerBeforeBoardFull: null,
+                    gameOver: false
+                });
+            }
+        }
+
+        // --- Initialization ---
+        function initGame() {
+            gameMode = 'singleplayer';
+            board = Array(GRID_SIZE).fill(null).map(() => Array(GRID_SIZE).fill(null));
+            currentPlayer = 'X';
+            scores = { X: 0, O: 0 };
+            gameOver = false;
+            isRemovalPhase = false;
+            removalTurnsLeft = 0;
+            playerBeforeBoardFull = null;
+            isPlayerTurn = true; // Player X starts
+            processingMove = false; // Reset processing flag
+            gameContainerElement.classList.remove('removal-phase');
+
+            gameBoardElement.innerHTML = '';
+            gameBoardElement.removeEventListener('click', handleCellClick);
+            gameBoardElement.removeEventListener('click', handleMultiplayerCellClick);
+
+            for (let r = 0; r < GRID_SIZE; r++) {
+                for (let c = 0; c < GRID_SIZE; c++) {
+                    const cell = document.createElement('div');
+                    cell.classList.add('cell');
+                    cell.dataset.row = r;
+                    cell.dataset.col = c;
+                    gameBoardElement.appendChild(cell);
+                }
+            }
+
+            gameBoardElement.addEventListener('click', handleCellClick);
+            resetButton.addEventListener('click', initGame);
+            helpButton.addEventListener('click', showInstructions);
+
+            // Reset player labels
+            playerXLabel.textContent = 'Player';
+            playerOLabel.textContent = 'Bot';
+
+            updateScoreDisplay();
+            updateTurnIndicator();
+            updateMessage("");
+        }
+
+        // --- Event Handlers ---
+        function handleCellClick(event) {
+            // Only allow clicks during player's turn, not game over, and directly on a cell
+            if (!isPlayerTurn || gameOver || !event.target.classList.contains('cell')) return;
+
+            const cell = event.target;
+            const row = parseInt(cell.dataset.row);
+            const col = parseInt(cell.dataset.col);
+
+            if (isRemovalPhase) {
+                // Human player (X) removes an O piece
+                if (currentPlayer === 'X') {
+                    handlePlayerRemovalClick(cell, row, col);
+                }
+                // AI removal is handled separately
+            } else {
+                // Normal gameplay click by human player (X)
+                if (currentPlayer === 'X') {
+                    handleNormalPlayClick(cell, row, col);
+                }
+            }
+        }
+
+        /**
+         * Handles clicks during the normal gameplay phase for the Human player (X).
+         */
+        function handleNormalPlayClick(cell, row, col) {
+            if (board[row][col] !== null) {
+                updateMessage("Cell already taken");
+                setTimeout(() => updateMessage(""), 1500);
+                return;
+            }
+
+            placeSymbol(cell, row, col, 'X');
+            processMoveResult(row, col, 'X'); // Process the result of the move
+
+            // If game isn't over and it's now O's turn, trigger AI
+            if (!gameOver && currentPlayer === 'O') {
+                triggerAIMove();
+            }
+        }
+
+        /**
+         * Handles clicks during the removal phase for the Human player (X).
+         */
+        function handlePlayerRemovalClick(cell, row, col) {
+            const opponent = 'O'; // Human (X) removes Bot (O)
+
+            if (board[row][col] === opponent) {
+                removeSymbol(row, col); // Remove the symbol
+                removalTurnsLeft--;
+
+                if (removalTurnsLeft === 0) {
+                    endRemovalPhase();
+                } else {
+                    // Switch to AI's removal turn
+                    switchPlayer();
+                    updateTurnIndicator();
+                    updateMessage(`Remove opponent piece. (${removalTurnsLeft} left)`);
+                    triggerAIRemoval(); // Trigger AI removal
+                }
+            } else {
+                updateMessage("Click on an opponent's piece to remove");
+                setTimeout(() => {
+                    if (isRemovalPhase && currentPlayer === 'X') { // Check if still in removal phase before updating message
+                       updateMessage(`Remove opponent piece. (${removalTurnsLeft} left)`);
+                    }
+                }, 1500);
+            }
+        }
+
+
+        // --- Game Logic Functions ---
+
+        /**
+         * Places a player's symbol on the board array and updates the UI.
+         */
+        function placeSymbol(cellElement, row, col, player) {
+            board[row][col] = player;
+            // If cellElement is not provided (e.g., AI move), find it
+            if (!cellElement) {
+                 cellElement = gameBoardElement.querySelector(`[data-row="${row}"][data-col="${col}"]`);
+            }
+            if (cellElement) {
+                cellElement.textContent = player;
+                cellElement.classList.add(player);
+            }
+        }
+
+         /**
+         * Removes a symbol from the board array and updates the UI.
+         * @param {number} row - The row index.
+         * @param {number} col - The column index.
+         */
+        function removeSymbol(row, col) {
+            const player = board[row][col];
+            if (player) {
+                board[row][col] = null;
+                const cellElement = gameBoardElement.querySelector(`[data-row="${row}"][data-col="${col}"]`);
+                if (cellElement) {
+                    cellElement.textContent = '';
+                    cellElement.classList.remove(player);
+                }
+            }
+        }
+
+
+        /**
+         * Processes the result of a move and handles scoring animations.
+         */
+        function processMoveResult(row, col, player) {
+            isPlayerTurn = false; // Disable input during scoring check
+            processingMove = true; // Set flag to indicate we're processing a move
+            
+            // Check for connect-5 first (it takes precedence over connect-4)
+            const win5 = checkWin(row, col, 5);
+            if (win5) {
+                updateScore(player, CONNECT_5_POINTS);
+                const message = `${player === 'X' ? 'Player' : 'Bot'} scores ${CONNECT_5_POINTS}! (Connect 5)`;
+                
+                showPopupMessage(message).then(() => {
+                    if (scores[player] >= WINNING_SCORE) {
+                        gameOver = true;
+                        const finalMessage = `${player === 'X' ? 'Player' : 'Bot'} wins! (${scores.X}-${scores.O})`;
+                        showPopupMessage(finalMessage);
+                        updateMessage(finalMessage);
+                        updateTurnIndicator("Game Over");
+                        processingMove = false; // Clear flag
+                        return;
+                    }
+
+                    highlightAndClearCells(win5.cells);
+                    currentPlayer = player; // Keep same player for bonus turn
+                    updateTurnIndicator(`${player === 'X' ? 'Player' : 'Bot'} (Bonus)`);
+                    
+                    // Only trigger AI if it's O's turn and game isn't over
+                    // But use a longer delay to ensure animation completes
+                    if (player === 'O' && !gameOver) {
+                        setTimeout(() => {
+                            processingMove = false; // Clear flag before making next move
+                            if (!gameOver && currentPlayer === 'O') {
+                                triggerAIMove();
+                            }
+                        }, HIGHLIGHT_DURATION + 500); // Wait for highlight and clear to finish plus a buffer
+                    } else {
+                        processingMove = false; // Clear flag
+                        isPlayerTurn = (player === 'X');
+                    }
+                });
+                return;
+            }
+
+            // If no connect-5, check for connect-4
+            const win4 = checkWin(row, col, 4);
+            if (win4) {
+                updateScore(player, CONNECT_4_POINTS);
+                const message = `${player === 'X' ? 'Player' : 'Bot'} scores ${CONNECT_4_POINTS}! (Connect 4)`;
+                
+                showPopupMessage(message).then(() => {
+                    if (scores[player] >= WINNING_SCORE) {
+                        gameOver = true;
+                        const finalMessage = `${player === 'X' ? 'Player' : 'Bot'} wins! (${scores.X}-${scores.O})`;
+                        showPopupMessage(finalMessage);
+                        updateMessage(finalMessage);
+                        updateTurnIndicator("Game Over");
+                        processingMove = false; // Clear flag
+                        return;
+                    }
+
+                    highlightAndClearCells(win4.cells);
+                    currentPlayer = player; // Keep same player for bonus turn
+                    updateTurnIndicator(`${player === 'X' ? 'Player' : 'Bot'} (Bonus)`);
+                    
+                    // Only trigger AI if it's O's turn and game isn't over
+                    // But use a longer delay to ensure animation completes
+                    if (player === 'O' && !gameOver) {
+                        setTimeout(() => {
+                            processingMove = false; // Clear flag before making next move
+                            if (!gameOver && currentPlayer === 'O') {
+                                triggerAIMove();
+                            }
+                        }, HIGHLIGHT_DURATION + 500); // Wait for highlight and clear to finish plus a buffer
+                    } else {
+                        processingMove = false; // Clear flag
+                        isPlayerTurn = (player === 'X');
+                    }
+                });
+                return;
+            }
+
+            // No scoring - check for board full or continue normal play
+            if (isBoardFull()) {
+                startRemovalPhase();
+                processingMove = false; // Clear flag
+            } else {
+                switchPlayer();
+                updateTurnIndicator();
+                updateMessage("");
+                
+                // Only trigger AI if it's their turn and not in any special state
+                if (currentPlayer === 'O' && !gameOver && !isRemovalPhase) {
+                    setTimeout(() => {
+                        processingMove = false; // Clear flag before next move
+                        if (!gameOver && currentPlayer === 'O' && !isRemovalPhase) {
+                            isPlayerTurn = false;
+                            triggerAIMove();
+                        }
+                    }, AI_DELAY);
+                } else {
+                    processingMove = false; // Clear flag
+                    isPlayerTurn = true;
+                }
+            }
+        }
+
+        /**
+         * Shows a popup message with a confirmation button.
+         * @param {string} message - The message to display
+         * @returns {Promise} Resolves when user clicks OK
+         */
+        function showPopupMessage(message) {
+            return new Promise((resolve) => {
+                // Create overlay
+                const overlay = document.createElement('div');
+                overlay.className = 'popup-overlay';
+                document.body.appendChild(overlay);
+
+                // Create popup element
+                const popup = document.createElement('div');
+                popup.className = 'popup-message';
+
+                const messageText = document.createElement('p');
+                messageText.className = 'popup-message-text';
+                messageText.textContent = message;
+
+                const confirmButton = document.createElement('button');
+                confirmButton.className = 'popup-button';
+                confirmButton.textContent = 'OK';
+                
+                confirmButton.addEventListener('click', () => {
+                    document.body.removeChild(popup);
+                    document.body.removeChild(overlay);
+                    resolve();
+                });
+
+                popup.appendChild(messageText);
+                popup.appendChild(confirmButton);
+                document.body.appendChild(popup);
+            });
+        }
+
+        /**
+         * Shows game instructions in a popup.
+         */
+        function showInstructions() {
+            // Create overlay
+            const overlay = document.createElement('div');
+            overlay.className = 'popup-overlay';
+            document.body.appendChild(overlay);
+
+            // Create popup element
+            const popup = document.createElement('div');
+            popup.className = 'popup-message';
+            popup.style.maxWidth = '400px';
+            popup.style.maxHeight = '80vh';
+            popup.style.overflowY = 'auto';
+
+            const instructionsContent = document.createElement('div');
+            instructionsContent.className = 'instructions-content';
+            instructionsContent.innerHTML = `
+                <h3>How to Play</h3>
+                <ul>
+                    <li>Take turns placing X or O on a 5×5 grid</li>
+                    <li>Connect 4 in a row to score 1 point</li>
+                    <li>Connect 5 in a row to score 2 points</li>
+                    <li>When you score, the connected pieces are removed and you get another turn</li>
+                </ul>
+                
+                <h3>Special Rules</h3>
+                <ul>
+                    <li>If the board fills up completely, players take turns removing 3 of the opponent's pieces</li>
+                    <li>First player to reach 5 points wins</li>
+                </ul>
+            `;
+
+            const closeButton = document.createElement('button');
+            closeButton.className = 'popup-button';
+            closeButton.textContent = 'Close';
+            
+            closeButton.addEventListener('click', () => {
+                document.body.removeChild(popup);
+                document.body.removeChild(overlay);
+            });
+
+            popup.appendChild(instructionsContent);
+            popup.appendChild(closeButton);
+            document.body.appendChild(popup);
+        }
+
+        /**
+         * Checks for a win condition (connect 4 or 5) originating from the last move.
+         * (Code identical to previous version, comments removed for brevity)
+         */
+         function checkWin(lastRow, lastCol, connectLength) {
+            const player = board[lastRow][lastCol];
+            if (!player) return null;
+
+            const directions = [ { dr: 0, dc: 1 }, { dr: 1, dc: 0 }, { dr: 1, dc: 1 }, { dr: 1, dc: -1 } ];
+
+            for (const { dr, dc } of directions) {
+                let count = 1;
+                let winningCells = [{ r: lastRow, c: lastCol }];
+                // Check positive direction
+                for (let i = 1; i < connectLength; i++) {
+                    const r = lastRow + i * dr; const c = lastCol + i * dc;
+                    if (r >= 0 && r < GRID_SIZE && c >= 0 && c < GRID_SIZE && board[r][c] === player) {
+                        count++; winningCells.push({ r, c });
+                    } else break;
+                }
+                // Check negative direction
+                for (let i = 1; i < connectLength; i++) {
+                    const r = lastRow - i * dr; const c = lastCol - i * dc;
+                    if (r >= 0 && r < GRID_SIZE && c >= 0 && c < GRID_SIZE && board[r][c] === player) {
+                        count++; winningCells.push({ r, c });
+                    } else break;
+                }
+                // Check if exactly the required length match was found
+                if (count === connectLength) {
+                    return { cells: winningCells };
+                }
+            }
+            return null;
+        }
+
+
+        /**
+         * Highlights the winning cells briefly, then clears them.
+         * Disables player input during the highlight/clear animation.
+         */
+        function highlightAndClearCells(cells) {
+            isPlayerTurn = false; // Disable input during animation
+            const cellElements = [];
+            cells.forEach(({ r, c }) => {
+                const cellElement = gameBoardElement.querySelector(`[data-row="${r}"][data-col="${c}"]`);
+                if (cellElement) {
+                    cellElement.classList.add('highlight');
+                    cellElements.push(cellElement);
+                }
+            });
+
+            setTimeout(() => {
+                cells.forEach(({ r, c }) => {
+                    removeSymbol(r, c); // Use removeSymbol to clear board and UI
+                    const cellElement = gameBoardElement.querySelector(`[data-row="${r}"][data-col="${c}"]`);
+                    if (cellElement) {
+                        cellElement.classList.remove('highlight'); // Ensure highlight is removed
+                    }
+                });
+                // After clearing, explicitly set the turn flag based on the current game state
+                if (gameOver) {
+                    isPlayerTurn = false;
+                } else {
+                    isPlayerTurn = (currentPlayer === 'X');
+                }
+            }, HIGHLIGHT_DURATION);
+        }
+
+
+        function updateScore(player, points) {
+            scores[player] += points;
+            updateScoreDisplay();
+        }
+
+        function isBoardFull() {
+            for (let r = 0; r < GRID_SIZE; r++) {
+                for (let c = 0; c < GRID_SIZE; c++) {
+                    if (board[r][c] === null) return false;
+                }
+            }
+            return true;
+        }
+
+        function startRemovalPhase() {
+            isRemovalPhase = true;
+            removalTurnsLeft = REMOVAL_TURNS_EACH * 2;
+            playerBeforeBoardFull = currentPlayer;
+            currentPlayer = 'X'; // Player X always starts removal phase
+            isPlayerTurn = true; // Human (X) starts removal
+            gameContainerElement.classList.add('removal-phase');
+
+            updateMessage(`Board full! Remove opponent piece. (${REMOVAL_TURNS_EACH * 2} left)`);
+            updateTurnIndicator("Remove: Player");
+        }
+
+        function endRemovalPhase() {
+            isRemovalPhase = false;
+            gameContainerElement.classList.remove('removal-phase');
+            
+            // After removal phase, the player who didn't play last before board was full goes next
+            currentPlayer = playerBeforeBoardFull === 'X' ? 'O' : 'X';
+            playerBeforeBoardFull = null;
+            isPlayerTurn = (currentPlayer === 'X'); // Set turn correctly
+            
+            updateMessage("Removal phase over. Play resumes.");
+            updateTurnIndicator();
+            
+            // If it's AI's turn to resume play
+            if (currentPlayer === 'O' && !gameOver) {
+                setTimeout(() => {
+                    if (!gameOver && currentPlayer === 'O') {
+                        triggerAIMove();
+                    }
+                }, AI_DELAY);
+            }
+        }
+
+
+        // --- UI Update Functions ---
+        function updateScoreDisplay() {
+            scoreXElement.textContent = scores.X;
+            scoreOElement.textContent = scores.O;
+            
+            // Highlight active player's score box
+            document.getElementById('player-x-box').classList.toggle('active', currentPlayer === 'X');
+            document.getElementById('player-o-box').classList.toggle('active', currentPlayer === 'O');
+        }
+
+        function updateTurnIndicator(overrideText = null) {
+            if (gameOver) {
+                 turnIndicatorElement.textContent = "Game Over";
+            } else if (overrideText) {
+                turnIndicatorElement.textContent = overrideText;
+            } else {
+                const playerText = currentPlayer === 'X' ? 'Player' : 'Bot';
+                const phaseText = isRemovalPhase ? 'Remove: ' : '';
+                turnIndicatorElement.textContent = `${phaseText}${playerText}'s Turn`;
+            }
+        }
+
+        function updateMessage(message) {
+            messageAreaElement.textContent = message;
+        }
+
+        // --- AI Logic ---
+
+        /**
+         * Triggers a single AI move.
+         */
+        function triggerAIMove() {
+            if (gameOver || isRemovalPhase || currentPlayer !== 'O' || processingMove) {
+                return; // Ensure AI only plays when it's its turn and no move is being processed
+            }
+
+            isPlayerTurn = false; // Lock out player input during AI's turn
+            updateTurnIndicator("Bot thinking...");
+
+            setTimeout(() => {
+                if (gameOver || isRemovalPhase || currentPlayer !== 'O' || processingMove) {
+                    isPlayerTurn = (currentPlayer === 'X');
+                    return;
+                }
+
+                const move = getAIMove();
+                if (move) {
+                    placeSymbol(null, move.row, move.col, 'O');
+                    // Note: processMoveResult will handle triggering another AI move
+                    // if needed for bonus turn after connect-4 or connect-5
+                    processMoveResult(move.row, move.col, 'O');
+                } else {
+                    console.error("AI could not find a valid move.");
+                    switchPlayer();
+                    isPlayerTurn = true;
+                    updateTurnIndicator();
+                }
+            }, AI_DELAY);
+        }
+
+        /**
+         * Triggers the AI's removal move after a short delay.
+         */
+        function triggerAIRemoval() {
+             isPlayerTurn = false; // Disable human input
+             updateTurnIndicator("Bot removing...");
+             setTimeout(() => {
+                if (gameOver || !isRemovalPhase) return; // Check state again
+
+                const removalTarget = getAIRemovalMove();
+                if (removalTarget) {
+                    removeSymbol(removalTarget.row, removalTarget.col); // Remove the targeted X
+                    removalTurnsLeft--;
+
+                    if (removalTurnsLeft === 0) {
+                        endRemovalPhase();
+                    } else {
+                        // Switch back to Player X's removal turn
+                        switchPlayer();
+                        updateTurnIndicator();
+                        updateMessage(`Remove opponent piece. (${removalTurnsLeft} left)`);
+                        isPlayerTurn = true; // Enable human input for removal
+                    }
+                } else {
+                     console.error("AI could not find a piece to remove.");
+                     // Failsafe: End removal phase? Or just skip turn? Let's skip turn for now.
+                     switchPlayer(); // Switch back to Player X
+                     updateTurnIndicator();
+                     updateMessage(`Remove opponent piece. (${removalTurnsLeft} left)`);
+                     isPlayerTurn = true;
+                }
+             }, AI_DELAY);
+        }
+
+
+        /**
+         * Determines the best move for the AI (Bot O).
+         * Follows the prioritized strategy.
+         * @returns {object | null} - The {row, col} of the best move, or null if no move found.
+         */
+        function getAIMove() {
+            const opponent = 'X';
+            const aiPlayer = 'O';
+
+            // 1. Win Immediately (5-in-a-row)
+            let move = findWinningMove(aiPlayer, 5);
+            if (move) return move;
+
+            // 2. Win Immediately (4-in-a-row)
+            move = findWinningMove(aiPlayer, 4);
+            if (move) return move;
+
+            // 3. Block Opponent's Immediate Win (5-in-a-row)
+            move = findWinningMove(opponent, 5); // Find where opponent *would* win
+            if (move) return move; // Block it
+
+            // 4. Block Opponent's Immediate Win (4-in-a-row)
+            move = findWinningMove(opponent, 4); // Find where opponent *would* win
+            if (move) return move; // Block it
+
+            // --- More Advanced Strategy (Optional - Simplified for now) ---
+            // 5. Set Up Own Win (e.g., create two threats) - Complex, skipping for now
+            // 6. Block Opponent's Setup - Complex, skipping for now
+
+            // 7. Heuristic/Positional Play (Fallback)
+            move = findHeuristicMove(aiPlayer);
+            if (move) return move;
+
+            // 8. Absolute Fallback: Find any empty cell (should always find one if board not full)
+            const emptyCells = getEmptyCells();
+            if (emptyCells.length > 0) {
+                return emptyCells[Math.floor(Math.random() * emptyCells.length)]; // Random empty cell
+            }
+
+            return null; // Should not be reached if board isn't full
+        }
+
+        /**
+         * Finds a move for the specified player to achieve connectLength.
+         * @param {string} player - 'X' or 'O'.
+         * @param {number} connectLength - 4 or 5.
+         * @returns {object | null} - The {row, col} of the winning/blocking move, or null.
+         */
+        function findWinningMove(player, connectLength) {
+            const emptyCells = getEmptyCells();
+            for (const { row, col } of emptyCells) {
+                // Temporarily place the piece
+                board[row][col] = player;
+                // Check if this move wins
+                if (checkWin(row, col, connectLength)) {
+                    // Found a winning move, undo temporary placement and return
+                    board[row][col] = null;
+                    return { row, col };
+                }
+                // Undo temporary placement
+                board[row][col] = null;
+            }
+            return null; // No immediate winning move found
+        }
+
+        /**
+         * Finds a heuristic move (center preferred, then random).
+         * @param {string} player - The AI player ('O').
+         * @returns {object | null} - The {row, col} of the heuristic move, or null.
+         */
+        function findHeuristicMove(player) {
+            const emptyCells = getEmptyCells();
+            if (emptyCells.length === 0) return null;
+
+            // Prioritize center cells
+            const centerCoords = [
+                {row: 2, col: 2},
+                {row: 1, col: 2}, {row: 2, col: 1}, {row: 2, col: 3}, {row: 3, col: 2},
+                {row: 1, col: 1}, {row: 1, col: 3}, {row: 3, col: 1}, {row: 3, col: 3}
+            ];
+
+            for (const {row, col} of centerCoords) {
+                if (board[row][col] === null) {
+                    // Simple check: ensure this move doesn't immediately let opponent win
+                    board[row][col] = player; // Temporarily place AI piece
+                    const opponentWinsNext = findWinningMove('X', 5) || findWinningMove('X', 4);
+                    board[row][col] = null; // Undo temporary placement
+
+                    if (!opponentWinsNext) {
+                         return { row, col }; // Safe heuristic move
+                    }
+                }
+            }
+
+            // If center cells are taken or unsafe, try adjacent to own pieces (simplified: just take any empty)
+            // A more complex heuristic would check adjacency or potential line building.
+            // For now, fall back to a random valid move from the remaining empty cells.
+
+             const safeMoves = emptyCells.filter(({row, col}) => {
+                 board[row][col] = player;
+                 const opponentWinsNext = findWinningMove('X', 5) || findWinningMove('X', 4);
+                 board[row][col] = null;
+                 return !opponentWinsNext;
+             });
+
+             if (safeMoves.length > 0) {
+                 return safeMoves[Math.floor(Math.random() * safeMoves.length)];
+             } else if (emptyCells.length > 0) {
+                 // If no move is "safe" (meaning opponent has a forced win), just make any move.
+                 return emptyCells[Math.floor(Math.random() * emptyCells.length)];
+             }
+
+
+            return null; // No empty cells left
+        }
+
+
+        /**
+         * Gets a list of all empty cells on the board.
+         * @returns {Array<object>} - An array of {row, col} objects.
+         */
+        function getEmptyCells() {
+            const cells = [];
+            for (let r = 0; r < GRID_SIZE; r++) {
+                for (let c = 0; c < GRID_SIZE; c++) {
+                    if (board[r][c] === null) {
+                        cells.push({ row: r, col: c });
+                    }
+                }
+            }
+            return cells;
+        }
+
+        /**
+         * Determines the best opponent piece ('X') for the AI ('O') to remove.
+         * @returns {object | null} - The {row, col} of the piece to remove, or null.
+         */
+        function getAIRemovalMove() {
+            const opponent = 'X';
+            const opponentCells = [];
+            for (let r = 0; r < GRID_SIZE; r++) {
+                for (let c = 0; c < GRID_SIZE; c++) {
+                    if (board[r][c] === opponent) {
+                        opponentCells.push({ row: r, col: c });
+                    }
+                }
+            }
+
+            if (opponentCells.length === 0) return null; // No opponent pieces to remove
+
+            // Strategy:
+            // 1. Find if removing a piece prevents an immediate opponent win (4 or 5 in a row setup).
+            //    Check if any opponent piece is part of a line of 3 or 4 opponent pieces
+            //    with empty spaces that could complete the line. Removing such a piece is high priority.
+            //    (This is complex to check perfectly, simplify for now)
+
+            // Simplified Strategy:
+            // 1. Remove a piece that breaks the longest potential line for the opponent.
+            //    (Check lines of 3 or more)
+            // 2. Fallback: Remove a random opponent piece.
+
+            let bestCellToRemove = null;
+            let maxLineLengthBroken = 0;
+
+            for (const { row, col } of opponentCells) {
+                 // Temporarily remove the piece to see its impact
+                 board[row][col] = null; // Simulate removal
+
+                 // Check opponent's potential *after* removal (less potential is better)
+                 // A simple proxy: check the length of the longest line X *could* make now
+                 // This is still complex. Let's simplify further:
+                 // Just find which X is part of the longest *current* line of X's
+
+                 // Reset simulation
+                 board[row][col] = opponent;
+
+                 // Check current lines involving this piece
+                 const currentLineLength = getMaxLineLengthContaining(row, col, opponent);
+                 if (currentLineLength > maxLineLengthBroken) {
+                     maxLineLengthBroken = currentLineLength;
+                     bestCellToRemove = { row, col };
+                 }
+            }
+
+             // If we found a piece breaking a line of 2 or more, remove it
+            if (bestCellToRemove && maxLineLengthBroken >= 2) {
+                 return bestCellToRemove;
+            }
+
+            // Fallback: Remove a random opponent piece
+            return opponentCells[Math.floor(Math.random() * opponentCells.length)];
+        }
+
+         /**
+         * Helper for AI Removal: Finds the maximum length of a continuous line
+         * (horizontal, vertical, diagonal) of the specified player's pieces
+         * that includes the given cell (r, c).
+         * @param {number} r - Row index.
+         * @param {number} c - Column index.
+         * @param {string} player - 'X' or 'O'.
+         * @returns {number} - The length of the longest line containing (r, c).
+         */
+        function getMaxLineLengthContaining(r, c, player) {
+            let maxLength = 0;
+            const directions = [ { dr: 0, dc: 1 }, { dr: 1, dc: 0 }, { dr: 1, dc: 1 }, { dr: 1, dc: -1 } ];
+
+            for (const { dr, dc } of directions) {
+                let currentLength = 1; // Start with the piece itself
+                // Check positive direction
+                for (let i = 1; i < GRID_SIZE; i++) {
+                    const nr = r + i * dr; const nc = c + i * dc;
+                    if (nr >= 0 && nr < GRID_SIZE && nc >= 0 && nc < GRID_SIZE && board[nr][nc] === player) {
+                        currentLength++;
+                    } else break;
+                }
+                // Check negative direction
+                for (let i = 1; i < GRID_SIZE; i++) {
+                    const nr = r - i * dr; const nc = c - i * dc;
+                     if (nr >= 0 && nr < GRID_SIZE && nc >= 0 && nc < GRID_SIZE && board[nr][nc] === player) {
+                        currentLength++;
+                    } else break;
+                }
+                maxLength = Math.max(maxLength, currentLength);
+            }
+            return maxLength;
+        }
+
+        /**
+         * Switches the current player from X to O or vice versa.
+         */
+        function switchPlayer() {
+            currentPlayer = currentPlayer === 'X' ? 'O' : 'X';
+            isPlayerTurn = (currentPlayer === 'X'); // Set the player turn flag based on current player
+        }
+
+        // --- Call initGame when the page loads ---
+        window.addEventListener('DOMContentLoaded', () => {
+            // Hide all containers except landing page
+            landingPage.classList.remove('hidden');
+            multiplayerSetup.classList.add('hidden');
+            waitingLobby.classList.add('hidden');
+            gameUI.classList.add('hidden');
+        });
+
+        // --- Call initGame when the page loads ---
+        initGame();
+
+    </script>
+
+</body>
+</html>
