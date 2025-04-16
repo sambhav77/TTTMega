@@ -455,8 +455,15 @@
         };
         
         // Initialize Firebase
-        firebase.initializeApp(firebaseConfig);
-        const database = firebase.database();
+        let database;
+        try {
+            firebase.initializeApp(firebaseConfig);
+            database = firebase.database();
+            console.log("Firebase initialized successfully");
+        } catch (error) {
+            console.error("Firebase initialization error:", error);
+            alert("Could not connect to multiplayer server. Please try again later.");
+        }
         
         // --- Constants ---
         const GRID_SIZE = 5;
@@ -539,6 +546,10 @@
                 return;
             }
             
+            // Show loading state
+            createGameButton.textContent = "Creating...";
+            createGameButton.disabled = true;
+            
             playerName = playerNameInput.value.trim();
             createMultiplayerGame();
         });
@@ -553,6 +564,10 @@
                 alert('Please enter a game code');
                 return;
             }
+            
+            // Show loading state
+            joinGameButton.textContent = "Joining...";
+            joinGameButton.disabled = true;
             
             playerName = playerNameInput.value.trim();
             joinMultiplayerGame(gameCodeInput.value.trim());
@@ -584,144 +599,199 @@
 
         // --- Multiplayer Functions ---
         function createMultiplayerGame() {
-            // Generate a random 6-character game code
-            gameId = Math.random().toString(36).substring(2, 8).toUpperCase();
-            
-            // Create the game in Firebase
-            database.ref(`games/${gameId}`).set({
-                players: {
-                    X: {
-                        name: playerName,
-                        ready: true
-                    }
-                },
-                board: Array(GRID_SIZE).fill(null).map(() => Array(GRID_SIZE).fill(null)),
-                currentPlayer: 'X',
-                scores: { X: 0, O: 0 },
-                isRemovalPhase: false,
-                removalTurnsLeft: 0,
-                playerBeforeBoardFull: null,
-                gameOver: false,
-                lastUpdate: firebase.database.ServerValue.TIMESTAMP
-            });
-            
-            // Set up listener for when opponent joins
-            database.ref(`games/${gameId}/players/O`).on('value', (snapshot) => {
-                if (snapshot.exists()) {
-                    opponentName = snapshot.val().name;
+            try {
+                // Generate a random 6-character game code
+                gameId = Math.random().toString(36).substring(2, 8).toUpperCase();
+                console.log("Creating new game with ID:", gameId);
+                
+                // Create the game in Firebase
+                database.ref(`games/${gameId}`).set({
+                    players: {
+                        X: {
+                            name: playerName,
+                            ready: true
+                        }
+                    },
+                    board: Array(GRID_SIZE).fill(null).map(() => Array(GRID_SIZE).fill(null)),
+                    currentPlayer: 'X',
+                    scores: { X: 0, O: 0 },
+                    isRemovalPhase: false,
+                    removalTurnsLeft: 0,
+                    playerBeforeBoardFull: null,
+                    gameOver: false,
+                    lastUpdate: firebase.database.ServerValue.TIMESTAMP
+                })
+                .then(() => {
+                    console.log("Game created successfully");
                     
-                    // Both players are ready, start the game
-                    isPlayerX = true;
-                    multiplayerTurn = true; // X goes first
-                    waitingLobby.classList.add('hidden');
-                    gameUI.classList.remove('hidden');
+                    // Set up listener for when opponent joins
+                    database.ref(`games/${gameId}/players/O`).on('value', (snapshot) => {
+                        if (snapshot.exists()) {
+                            opponentName = snapshot.val().name;
+                            console.log("Opponent joined:", opponentName);
+                            
+                            // Both players are ready, start the game
+                            isPlayerX = true;
+                            multiplayerTurn = true; // X goes first
+                            waitingLobby.classList.add('hidden');
+                            gameUI.classList.remove('hidden');
+                            
+                            // Update player labels
+                            playerXLabel.textContent = playerName;
+                            playerOLabel.textContent = opponentName;
+                            
+                            // Start listening for game state changes
+                            setupMultiplayerGameListeners();
+                            initMultiplayerGame();
+                        }
+                    });
                     
-                    // Update player labels
-                    playerXLabel.textContent = playerName;
-                    playerOLabel.textContent = opponentName;
+                    // Show the waiting lobby with the game code
+                    multiplayerSetup.classList.add('hidden');
+                    waitingLobby.classList.remove('hidden');
+                    lobbyCodeElement.textContent = gameId;
                     
-                    // Start listening for game state changes
-                    setupMultiplayerGameListeners();
-                    initMultiplayerGame();
-                }
-            });
-            
-            // Show the waiting lobby with the game code
-            multiplayerSetup.classList.add('hidden');
-            waitingLobby.classList.remove('hidden');
-            lobbyCodeElement.textContent = gameId;
+                    // Reset button state
+                    createGameButton.textContent = "Create New Game";
+                    createGameButton.disabled = false;
+                })
+                .catch(error => {
+                    console.error("Error creating game:", error);
+                    alert("Error creating game. Please try again.");
+                    createGameButton.textContent = "Create New Game";
+                    createGameButton.disabled = false;
+                });
+            } catch (error) {
+                console.error("Error in createMultiplayerGame function:", error);
+                alert("An unexpected error occurred. Please try again.");
+                createGameButton.textContent = "Create New Game";
+                createGameButton.disabled = false;
+            }
         }
 
         function joinMultiplayerGame(code) {
             gameId = code.toUpperCase();
+            console.log("Attempting to join game with ID:", gameId);
             
-            // Check if the game exists
-            database.ref(`games/${gameId}`).once('value', (snapshot) => {
-                if (!snapshot.exists()) {
-                    alert('Game not found. Please check the code and try again.');
-                    return;
-                }
-                
-                const gameData = snapshot.val();
-                
-                // Check if the game already has two players
-                if (gameData.players && gameData.players.O && gameData.players.O.ready) {
-                    alert('This game is already full.');
-                    return;
-                }
-                
-                // Join the game as player O
-                database.ref(`games/${gameId}/players/O`).set({
-                    name: playerName,
-                    ready: true
-                });
-                
-                // Set up game state
-                isPlayerX = false;
-                multiplayerTurn = false; // X goes first
-                opponentName = gameData.players.X.name;
-                
-                // Update player labels
-                playerXLabel.textContent = opponentName;
-                playerOLabel.textContent = playerName;
-                
-                // Show the game UI
-                multiplayerSetup.classList.add('hidden');
-                gameUI.classList.remove('hidden');
-                
-                // Start listening for game state changes
-                setupMultiplayerGameListeners();
-                initMultiplayerGame();
-            });
+            try {
+                // Check if the game exists
+                database.ref(`games/${gameId}`).once('value')
+                    .then((snapshot) => {
+                        if (!snapshot.exists()) {
+                            console.log("Game not found:", gameId);
+                            alert('Game not found. Please check the code and try again.');
+                            resetJoinButton();
+                            return;
+                        }
+                        
+                        const gameData = snapshot.val();
+                        console.log("Game data retrieved:", gameData);
+                        
+                        // Check if the game already has two players
+                        if (gameData.players && gameData.players.O && gameData.players.O.ready) {
+                            alert('This game is already full.');
+                            resetJoinButton();
+                            return;
+                        }
+                        
+                        // Join the game as player O
+                        return database.ref(`games/${gameId}/players/O`).set({
+                            name: playerName,
+                            ready: true
+                        })
+                        .then(() => {
+                            console.log("Successfully joined game as player O");
+                            
+                            // Set up game state
+                            isPlayerX = false;
+                            multiplayerTurn = false; // X goes first
+                            opponentName = gameData.players.X.name;
+                            
+                            // Update player labels
+                            playerXLabel.textContent = opponentName;
+                            playerOLabel.textContent = playerName;
+                            
+                            // Show the game UI
+                            multiplayerSetup.classList.add('hidden');
+                            gameUI.classList.remove('hidden');
+                            
+                            // Start listening for game state changes
+                            setupMultiplayerGameListeners();
+                            initMultiplayerGame();
+                        })
+                        .catch(error => {
+                            console.error("Error joining game:", error);
+                            alert('Error joining game. Please try again.');
+                            resetJoinButton();
+                        });
+                    })
+                    .catch(error => {
+                        console.error("Error checking if game exists:", error);
+                        alert('Error connecting to the server. Please try again.');
+                        resetJoinButton();
+                    });
+            } catch (error) {
+                console.error("Error in joinMultiplayerGame function:", error);
+                alert('An unexpected error occurred. Please try again.');
+                resetJoinButton();
+            }
+        }
+
+        function resetJoinButton() {
+            joinGameButton.textContent = "Join";
+            joinGameButton.disabled = false;
         }
 
         function setupMultiplayerGameListeners() {
+            // Keep track of all the listeners we set up
+            const gameListeners = [];
+            
             // Listen for board changes
-            database.ref(`games/${gameId}/board`).on('value', (snapshot) => {
+            gameListeners.push(['board', database.ref(`games/${gameId}/board`).on('value', (snapshot) => {
                 if (snapshot.exists()) {
                     const newBoard = snapshot.val();
                     updateBoardUI(newBoard);
                     board = newBoard; // Update local board
                 }
-            });
+            })]);
             
             // Listen for current player changes
-            database.ref(`games/${gameId}/currentPlayer`).on('value', (snapshot) => {
+            gameListeners.push(['currentPlayer', database.ref(`games/${gameId}/currentPlayer`).on('value', (snapshot) => {
                 if (snapshot.exists()) {
                     currentPlayer = snapshot.val();
                     multiplayerTurn = (isPlayerX && currentPlayer === 'X') || (!isPlayerX && currentPlayer === 'O');
                     updateTurnIndicator();
                 }
-            });
+            })]);
             
             // Listen for score changes
-            database.ref(`games/${gameId}/scores`).on('value', (snapshot) => {
+            gameListeners.push(['scores', database.ref(`games/${gameId}/scores`).on('value', (snapshot) => {
                 if (snapshot.exists()) {
                     scores = snapshot.val();
                     updateScoreDisplay();
                 }
-            });
+            })]);
             
             // Listen for removal phase changes
-            database.ref(`games/${gameId}/isRemovalPhase`).on('value', (snapshot) => {
+            gameListeners.push(['isRemovalPhase', database.ref(`games/${gameId}/isRemovalPhase`).on('value', (snapshot) => {
                 if (snapshot.exists()) {
                     isRemovalPhase = snapshot.val();
                     gameContainerElement.classList.toggle('removal-phase', isRemovalPhase);
                 }
-            });
+            })]);
             
             // Listen for removal turns left
-            database.ref(`games/${gameId}/removalTurnsLeft`).on('value', (snapshot) => {
+            gameListeners.push(['removalTurnsLeft', database.ref(`games/${gameId}/removalTurnsLeft`).on('value', (snapshot) => {
                 if (snapshot.exists()) {
                     removalTurnsLeft = snapshot.val();
                     if (isRemovalPhase) {
                         updateMessage(`Remove opponent piece. (${removalTurnsLeft} left)`);
                     }
                 }
-            });
+            })]);
             
             // Listen for game over state
-            database.ref(`games/${gameId}/gameOver`).on('value', (snapshot) => {
+            gameListeners.push(['gameOver', database.ref(`games/${gameId}/gameOver`).on('value', (snapshot) => {
                 if (snapshot.exists()) {
                     gameOver = snapshot.val();
                     if (gameOver) {
@@ -731,8 +801,90 @@
                         updateMessage(`${winnerName} wins! (${scores.X}-${scores.O})`);
                     }
                 }
-            });
+            })]);
+            
+            // Listen for opponent disconnect
+            const opponentRole = isPlayerX ? 'O' : 'X';
+            gameListeners.push(['opponentPresence', database.ref(`games/${gameId}/players/${opponentRole}`).on('value', (snapshot) => {
+                if (!snapshot.exists() && multiplayerGameStarted) {
+                    // Opponent left the game
+                    showPopupMessage("Your opponent has left the game.")
+                        .then(() => {
+                            cleanupMultiplayerGame();
+                            resetToLandingPage();
+                        });
+                }
+            })]);
+            
+            // Store the listeners for cleanup
+            window.gameListeners = gameListeners;
+            
+            // Set presence for automatic cleanup on disconnect
+            const playerRole = isPlayerX ? 'X' : 'O';
+            database.ref(`games/${gameId}/players/${playerRole}`).onDisconnect().remove();
+            multiplayerGameStarted = true;
         }
+        
+        // Function to clean up all Firebase listeners
+        function cleanupMultiplayerGame() {
+            if (window.gameListeners && window.gameListeners.length > 0) {
+                window.gameListeners.forEach(([path, listener]) => {
+                    console.log(`Removing listener for ${path}`);
+                    database.ref(`games/${gameId}/${path}`).off('value', listener);
+                });
+                window.gameListeners = [];
+            }
+            
+            // Clear onDisconnect handlers
+            if (gameId) {
+                const playerRole = isPlayerX ? 'X' : 'O';
+                database.ref(`games/${gameId}/players/${playerRole}`).onDisconnect().cancel();
+                
+                // If we're the host (X) and game didn't start, remove the game completely
+                if (isPlayerX && !multiplayerGameStarted) {
+                    database.ref(`games/${gameId}`).remove();
+                }
+            }
+            
+            // Clear game state
+            gameId = null;
+            multiplayerGameStarted = false;
+        }
+        
+        function resetToLandingPage() {
+            // Hide all game containers
+            gameUI.classList.add('hidden');
+            waitingLobby.classList.add('hidden');
+            multiplayerSetup.classList.add('hidden');
+            
+            // Show landing page
+            landingPage.classList.remove('hidden');
+        }
+
+        // Add a variable to track if multiplayer game has started
+        let multiplayerGameStarted = false;
+        
+        // Handle page unload to clean up Firebase listeners
+        window.addEventListener('beforeunload', () => {
+            cleanupMultiplayerGame();
+        });
+        
+        // Add back button on game UI for multiplayer
+        const exitButton = document.createElement('button');
+        exitButton.className = 'icon-button';
+        exitButton.title = 'Exit to Main Menu';
+        exitButton.textContent = '←';
+        exitButton.addEventListener('click', () => {
+            if (gameMode === 'multiplayer' && confirm('Are you sure you want to leave the game?')) {
+                cleanupMultiplayerGame();
+                resetToLandingPage();
+            } else if (gameMode === 'singleplayer' && confirm('Are you sure you want to exit to main menu?')) {
+                resetToLandingPage();
+            }
+        });
+        
+        // Add exit button to header buttons
+        document.querySelector('.header-buttons').prepend(exitButton);
 
         function initMultiplayerGame() {
             gameMode = 'multiplayer';
