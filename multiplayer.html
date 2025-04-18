@@ -227,6 +227,13 @@
                 gameOver = gameData.gameOver;
                 playerBeforeBoardFull = gameData.playerBeforeBoardFull; // Needed for removal phase end logic locally
 
+                // Update opponent name if we don't have it yet (relevant for player joining)
+                const opponentRoleCheck = isPlayerX ? 'O' : 'X';
+                if (gameData.players && gameData.players[opponentRoleCheck] && !opponentName) {
+                    opponentName = gameData.players[opponentRoleCheck].name;
+                    updatePlayerLabels(); // Update labels now that we have the name
+                }
+
                 // Determine whose turn it is locally
                 multiplayerTurn = !gameOver && ((isPlayerX && currentPlayer === 'X') || (!isPlayerX && currentPlayer === 'O'));
 
@@ -314,16 +321,26 @@
                  .catch(err => console.error("Failed to set onDisconnect handler:", err)); // Add error handling
 
             multiplayerGameStarted = true;
-            updatePlayerLabels(); // Ensure labels are set correctly
+            // Ensure opponent name is fetched before initial label update if possible (for joining player)
+            const opponentRoleOnInit = isPlayerX ? 'O' : 'X';
+            database.ref(`games/${gameId}/players/${opponentRoleOnInit}`).once('value').then(snapshot => {
+                 if (snapshot.exists()) {
+                     opponentName = snapshot.val().name;
+                 }
+                 updatePlayerLabels(); // Update labels after potentially fetching opponent name
+            });
         }
 
         function updatePlayerLabels() {
+            console.log(`Updating labels. Mode: ${gameMode}, isPlayerX: ${isPlayerX}, playerName: ${playerName}, opponentName: ${opponentName}`); // Debug log
             if (gameMode === 'multiplayer') {
-                 playerXLabel.textContent = isPlayerX ? `${playerName} (X)` : `${opponentName} (X)`;
-                 playerOLabel.textContent = !isPlayerX ? `${playerName} (O)` : `${opponentName} (O)`;
+                 const playerXDisplay = isPlayerX ? `${playerName || 'You'} (X)` : `${opponentName || 'Opponent'} (X)`;
+                 const playerODisplay = !isPlayerX ? `${playerName || 'You'} (O)` : `${opponentName || 'Opponent'} (O)`;
+                 playerXLabel.textContent = playerXDisplay;
+                 playerOLabel.textContent = playerODisplay;
             } else {
-                 playerXLabel.textContent = 'Player';
-                 playerOLabel.textContent = 'Bot';
+                 playerXLabel.textContent = 'Player (X)';
+                 playerOLabel.textContent = 'Bot (O)';
             }
         }
 
@@ -492,19 +509,24 @@
 
         // Ensure updateBoardUI correctly clears cells that become null
         function updateBoardUI(boardState) {
+            // console.log("Updating board UI with state:", boardState); // Debug log
             for (let r = 0; r < GRID_SIZE; r++) {
                 for (let c = 0; c < GRID_SIZE; c++) {
                     const cell = gameBoardElement.querySelector(`[data-row="${r}"][data-col="${c}"]`);
-                    if (!cell) continue; // Skip if cell not found
-                    
-                    const value = boardState[r] ? boardState[r][c] : null; // Handle potentially missing rows
-                    
-                    // Clear existing classes and content
+                    if (!cell) {
+                        console.warn(`Cell element not found for row ${r}, col ${c}`);
+                        continue; // Skip if cell not found
+                    }
+
+                    // Ensure boardState and boardState[r] exist before accessing boardState[r][c]
+                    const value = boardState && boardState[r] ? boardState[r][c] : null;
+
+                    // Clear existing classes and content explicitly
                     cell.textContent = '';
                     cell.classList.remove('X', 'O', 'highlight'); // Ensure highlight is removed here too
-                    
+
                     // Add new content if needed
-                    if (value) {
+                    if (value === 'X' || value === 'O') {
                         cell.textContent = value;
                         cell.classList.add(value);
                     }
@@ -621,8 +643,7 @@
             helpButton.addEventListener('click', showInstructions);
 
             // Reset player labels for Single Player
-            playerXLabel.textContent = 'Player';
-            playerOLabel.textContent = 'Bot';
+            updatePlayerLabels(); // Use the function to set SP labels too
 
             updateScoreDisplay();
             updateTurnIndicator();
