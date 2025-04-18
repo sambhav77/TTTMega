@@ -684,8 +684,211 @@
         // --- Call initGame when the page loads ---
         initGame();
 
+        // --- Utility: Check for win (4 or 5 in a row) ---
+        function checkWin(board, player, connect) {
+            // Returns true if player has 'connect' in a row
+            const N = board.length;
+            // Horizontal, vertical, diagonal, anti-diagonal
+            for (let r = 0; r < N; r++) {
+                for (let c = 0; c < N; c++) {
+                    if (
+                        c <= N - connect && Array.from({length: connect}, (_, i) => board[r][c + i]).every(cell => cell === player) ||
+                        r <= N - connect && Array.from({length: connect}, (_, i) => board[r + i][c]).every(cell => cell === player) ||
+                        r <= N - connect && c <= N - connect && Array.from({length: connect}, (_, i) => board[r + i][c + i]).every(cell => cell === player) ||
+                        r >= connect - 1 && c <= N - connect && Array.from({length: connect}, (_, i) => board[r - i][c + i]).every(cell => cell === player)
+                    ) {
+                        return true;
+                    }
+                }
+            }
+            return false;
+        }
+
+        // --- Utility: Check if board is full ---
+        function isBoardFull(board) {
+            return board.every(row => row.every(cell => cell));
+        }
+
+        // --- Update Board UI ---
+        function updateBoardUI(board) {
+            const cells = gameBoardElement.querySelectorAll('.cell');
+            for (let r = 0; r < GRID_SIZE; r++) {
+                for (let c = 0; c < GRID_SIZE; c++) {
+                    const idx = r * GRID_SIZE + c;
+                    cells[idx].textContent = board[r][c] || '';
+                    cells[idx].classList.toggle('X', board[r][c] === 'X');
+                    cells[idx].classList.toggle('O', board[r][c] === 'O');
+                }
+            }
+        }
+
+        // --- Singleplayer (Bot) Logic ---
+        function handleCellClick(e) {
+            if (gameOver || processingMove || isRemovalPhase) return;
+            const cell = e.target;
+            if (!cell.classList.contains('cell')) return;
+            const row = parseInt(cell.dataset.row);
+            const col = parseInt(cell.dataset.col);
+            if (board[row][col]) return;
+            if (currentPlayer !== 'X') return;
+            board[row][col] = 'X';
+            updateBoardUI(board);
+            if (checkWin(board, 'X', 5)) {
+                scores.X += 2;
+                gameOver = scores.X >= WINNING_SCORE;
+                updateScoreDisplay();
+                updateTurnIndicator();
+                updateMessage(gameOver ? 'Player wins!' : 'Player scores 2!');
+                return;
+            } else if (checkWin(board, 'X', 4)) {
+                scores.X += 1;
+                gameOver = scores.X >= WINNING_SCORE;
+                updateScoreDisplay();
+                updateTurnIndicator();
+                updateMessage(gameOver ? 'Player wins!' : 'Player scores 1!');
+                return;
+            }
+            if (isBoardFull(board)) {
+                isRemovalPhase = true;
+                removalTurnsLeft = REMOVAL_TURNS_EACH * 2;
+                updateMessage('Board full! Remove opponent pieces.');
+                gameContainerElement.classList.add('removal-phase');
+                return;
+            }
+            currentPlayer = 'O';
+            updateTurnIndicator();
+            processingMove = true;
+            setTimeout(() => {
+                botMove();
+                processingMove = false;
+            }, AI_DELAY);
+        }
+
+        function botMove() {
+            // Simple bot: pick first available cell
+            for (let r = 0; r < GRID_SIZE; r++) {
+                for (let c = 0; c < GRID_SIZE; c++) {
+                    if (!board[r][c]) {
+                        board[r][c] = 'O';
+                        updateBoardUI(board);
+                        if (checkWin(board, 'O', 5)) {
+                            scores.O += 2;
+                            gameOver = scores.O >= WINNING_SCORE;
+                            updateScoreDisplay();
+                            updateTurnIndicator();
+                            updateMessage(gameOver ? 'Bot wins!' : 'Bot scores 2!');
+                            return;
+                        } else if (checkWin(board, 'O', 4)) {
+                            scores.O += 1;
+                            gameOver = scores.O >= WINNING_SCORE;
+                            updateScoreDisplay();
+                            updateTurnIndicator();
+                            updateMessage(gameOver ? 'Bot wins!' : 'Bot scores 1!');
+                            return;
+                        }
+                        if (isBoardFull(board)) {
+                            isRemovalPhase = true;
+                            removalTurnsLeft = REMOVAL_TURNS_EACH * 2;
+                            updateMessage('Board full! Remove opponent pieces.');
+                            gameContainerElement.classList.add('removal-phase');
+                            return;
+                        }
+                        currentPlayer = 'X';
+                        updateTurnIndicator();
+                        return;
+                    }
+                }
+            }
+        }
+
+        // --- Removal Phase Logic (Singleplayer) ---
+        gameBoardElement.addEventListener('click', function(e) {
+            if (!isRemovalPhase || gameOver) return;
+            const cell = e.target;
+            if (!cell.classList.contains('cell')) return;
+            const row = parseInt(cell.dataset.row);
+            const col = parseInt(cell.dataset.col);
+            if (currentPlayer === 'X' && board[row][col] === 'O') {
+                board[row][col] = null;
+                removalTurnsLeft--;
+                updateBoardUI(board);
+                if (removalTurnsLeft === 0) {
+                    isRemovalPhase = false;
+                    gameContainerElement.classList.remove('removal-phase');
+                    updateMessage('Removal phase over. Continue playing!');
+                    currentPlayer = 'X';
+                } else {
+                    currentPlayer = 'O';
+                    setTimeout(() => {
+                        // Bot removes a random X
+                        let removed = false;
+                        for (let r = 0; r < GRID_SIZE && !removed; r++) {
+                            for (let c = 0; c < GRID_SIZE && !removed; c++) {
+                                if (board[r][c] === 'X') {
+                                    board[r][c] = null;
+                                    removalTurnsLeft--;
+                                    removed = true;
+                                }
+                            }
+                        }
+                        updateBoardUI(board);
+                        if (removalTurnsLeft === 0) {
+                            isRemovalPhase = false;
+                            gameContainerElement.classList.remove('removal-phase');
+                            updateMessage('Removal phase over. Continue playing!');
+                            currentPlayer = 'X';
+                        } else {
+                            currentPlayer = 'X';
+                        }
+                    }, 500);
+                }
+            }
+        });
+
+        // --- Multiplayer Logic ---
+        function handleMultiplayerCellClick(e) {
+            if (gameOver || processingMove || isRemovalPhase) return;
+            if (!isPlayerX && currentPlayer === 'X') return;
+            if (isPlayerX && currentPlayer === 'O') return;
+            const cell = e.target;
+            if (!cell.classList.contains('cell')) return;
+            const row = parseInt(cell.dataset.row);
+            const col = parseInt(cell.dataset.col);
+            if (board[row][col]) return;
+            socket.emit('playerMove', { gameId, row, col, player: currentPlayer });
+        }
+        // --- Multiplayer Removal Phase ---
+        gameBoardElement.addEventListener('click', function(e) {
+            if (!isRemovalPhase || gameOver) return;
+            if (!isPlayerX && currentPlayer === 'X') return;
+            if (isPlayerX && currentPlayer === 'O') return;
+            const cell = e.target;
+            if (!cell.classList.contains('cell')) return;
+            const row = parseInt(cell.dataset.row);
+            const col = parseInt(cell.dataset.col);
+            const opponent = isPlayerX ? 'O' : 'X';
+            if (board[row][col] === opponent) {
+                socket.emit('removePiece', { gameId, row, col, player: isPlayerX ? 'X' : 'O' });
+            }
+        });
+
+        // --- Game Over Logic ---
+        function checkGameOver() {
+            if (scores.X >= WINNING_SCORE) {
+                gameOver = true;
+                updateMessage('Player X wins!');
+            } else if (scores.O >= WINNING_SCORE) {
+                gameOver = true;
+                updateMessage('Player O wins!');
+            }
+        }
+
+        // --- Help Button Functionality ---
+        function showInstructions() {
+            alert('How to Play:\n- Take turns placing X or O on a 5x5 grid.\n- Connect 4 in a row = 1 point, Connect 5 in a row = 2 points.\n- First to 5 points wins.\n- If the board is full, each player removes 3 of the opponent\'s pieces.');
+        }
+
     </script>
 
 </body>
 </html>
-```
