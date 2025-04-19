@@ -1,5 +1,5 @@
 // --- Socket.IO Setup ---
-const SERVER_URL = "http://localhost:3000"; // Address of your Socket.IO server
+const SERVER_URL = "https://tttmegabackend.onrender.com"; // Address of your Socket.IO server
 let socket; // Will be initialized later
 
 function connectToServer() {
